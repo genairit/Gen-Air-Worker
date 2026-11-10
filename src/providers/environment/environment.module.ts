@@ -12,5 +12,6 @@ export const EnvironmentModule = ConfigModule.forRoot({
       .pattern(/^[a-zA-Z0-9._-]{1,100}$/)
       .default('genair.worker.v1'),
     WORKER_PREFETCH: Joi.number().integer().min(1).max(8).default(1),
+    WORKER_API_TOKEN: Joi.string().min(32).required(),
   }),
 });

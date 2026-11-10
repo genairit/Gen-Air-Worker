@@ -22,6 +22,7 @@ services:
       WORKER_QUEUE_PREFIX: genair.worker.v1
       WORKER_PREFETCH: 1
       PORT: 3001
+      WORKER_API_TOKEN: local-worker-api-token-change-before-deployment
     ports:
       - '127.0.0.1:3001:3001'
     depends_on:
@@ -30,7 +31,7 @@ services:
     restart: on-failure
     init: true
     stop_grace_period: 60s
-    mem_limit: 512m
+    mem_limit: 1g
     cpus: 1
     healthcheck:
       test:

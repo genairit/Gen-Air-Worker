@@ -5,9 +5,9 @@ A standalone **NestJS 11** server for queue jobs. It follows the backend's famil
 interfaces and `TypedLogger` layout. It has its own package, lockfile and Nest config.
 There is no database module, database client, backend import or shared source dependency.
 
-This is a portable first slice for [card 148](https://trello.com/c/irqulidN).
-It does **not** change the main API, migrate an existing endpoint, deploy infrastructure,
-or complete the card's production rollout and application-responsiveness acceptance.
+The standalone service began with [card 148](https://trello.com/c/irqulidN).
+Quotation PDF generation for [card 128](https://trello.com/c/G6EHqI96) adds an
+authenticated HTTP render endpoint used by the main backend.
 
 ## Start locally
 
@@ -33,7 +33,9 @@ execution is `npm run build && npm run start:prod`.
 
 - `GET /health/live`: Nest process responds.
 - `GET /health/ready`: 200 only while the queue consumer is ready, otherwise 503.
-- No HTTP endpoint accepts jobs. Only the trusted main server publishes jobs.
+- `POST /render/quotation-pdf`: accepts a saved quotation snapshot from the main
+  backend with `Authorization: Bearer <WORKER_API_TOKEN>` and returns PDF bytes.
+  Keep this endpoint on a private network. It has no database or Drive access.
 
 ## Familiar structure
 
@@ -43,14 +45,14 @@ src/app.module.ts                   EnvironmentModule + WorkerModule
 src/providers/environment/          ConfigModule and Joi validation
 src/modules/worker/                 Controller, queue service, job service
 src/dto/job.dto.ts                  Validated versioned message envelope
-src/handlers/report.handler.ts      Pure report calculation
+src/handlers/                     CSV and quotation PDF rendering
 src/constants/, interfaces/        Protocol constants and result shapes
 src/logger/logger.service.ts        Typed, payload-free structured logging
 ```
 
 The queue service owns connection, confirms, acknowledgments and shutdown. The
 worker service owns job outcomes and retries. The job service runs the pure report
-handler in one disposable Node worker thread per job, so CPU work does not block
+handler in one disposable Node worker thread per queued job, so CPU work does not block
 RabbitMQ heartbeats or health checks. This is not another service or dependency.
 A timeout terminates the actual thread, rather than merely abandoning a promise.
 
@@ -77,7 +79,7 @@ Job envelope (JSON, maximum 1 MiB):
 }
 ```
 
-The first pure handler exports supplied tabular data to CSV. It is inspired by the
+The CSV handler exports supplied tabular data to CSV. It is inspired by the
 backend's apartment import error-report work, but does not replace that XLSX report
 or change its business behavior. All cells are strings, every row matches the header
 count, and limits are 10,000 rows, 50 columns and 1,000 characters per cell. The JSON
@@ -146,6 +148,13 @@ duplicate work across worker replicas. Future handlers must stay pure or supply
 idempotency for every external side effect before being enabled.
 
 ## Configuration and operations
+
+Set `WORKER_API_TOKEN` to the same random secret in this service and the main
+backend. Set the backend's `WORKER_URL` to this service's private base URL. The
+runtime image installs Chromium and Noto fonts for A4 Hebrew PDF rendering; the
+example Compose file reserves 1 GiB of memory. The backend controls whether the
+returned file is uploaded to the linked project's `הצעות מחיר` folder. An unlinked
+quotation is returned for download without any Drive upload.
 
 See [the environment migration](migrations/2026-11-10-worker-environment.md).
 Production is deliberately not provisioned by this change. Before rollout:

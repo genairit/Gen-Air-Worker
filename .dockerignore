@@ -1,0 +1,9 @@
+*
+!src
+!src/**
+!package.json
+!package-lock.json
+!tsconfig.json
+!nest-cli.json
+!assets
+!assets/**

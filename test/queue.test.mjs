@@ -10,7 +10,7 @@ const createBroker = () => {
   const events = [];
   const channel = new EventEmitter();
   const connection = new EventEmitter();
-  const state = { consume: null };
+  const state = { consume: null, consumers: new Map() };
   channel.assertQueue = async (queue, options) => {
     events.push({ type: 'declare', queue, options });
   };
@@ -19,6 +19,7 @@ const createBroker = () => {
   };
   channel.consume = async (queue, consume, options) => {
     state.consume = consume;
+    state.consumers.set(queue, consume);
     events.push({ type: 'consume', queue, options });
     return { consumerTag: 'consumer-1' };
   };
@@ -77,7 +78,13 @@ test('queue initialization declares durable quorum topology, bounded prefetch an
   const declarations = fixture.events.filter(({ type }) => type === 'declare');
   assert.deepEqual(
     declarations.map(({ queue }) => queue),
-    ['test.worker.failures', 'test.worker.results', 'test.worker.jobs'],
+    [
+      'test.worker.failures',
+      'test.worker.results',
+      'test.worker.pdf.results',
+      'test.worker.jobs',
+      'test.worker.pdf.jobs',
+    ],
   );
   declarations.forEach(({ options: queueOptions }) => {
     assert.equal(queueOptions.durable, true);
@@ -90,19 +97,25 @@ test('queue initialization declares durable quorum topology, bounded prefetch an
   });
   assert.equal(declarations[0].options.arguments['x-delivery-limit'], -1);
   assert.equal(declarations[1].options.arguments['x-delivery-limit'], -1);
-  assert.equal(declarations[2].options.arguments['x-delivery-limit'], 10);
+  assert.equal(declarations[3].options.arguments['x-delivery-limit'], 10);
   assert.equal(
-    declarations[2].options.arguments['x-dead-letter-strategy'],
+    declarations[3].options.arguments['x-dead-letter-strategy'],
     'at-least-once',
   );
-  assert.equal(declarations[2].options.arguments['x-dead-letter-exchange'], '');
+  assert.equal(declarations[3].options.arguments['x-dead-letter-exchange'], '');
   assert.equal(
-    declarations[2].options.arguments['x-dead-letter-routing-key'],
+    declarations[3].options.arguments['x-dead-letter-routing-key'],
     'test.worker.failures',
   );
-  assert.deepEqual(fixture.events.slice(-2), [
+  assert.deepEqual(fixture.events.slice(-4), [
     { type: 'prefetch', count: 2 },
     { type: 'consume', queue: 'test.worker.jobs', options: { noAck: false } },
+    { type: 'prefetch', count: 1 },
+    {
+      type: 'consume',
+      queue: 'test.worker.pdf.jobs',
+      options: { noAck: false },
+    },
   ]);
   await fixture.service.onApplicationShutdown();
 });
@@ -177,7 +190,8 @@ test('shutdown cancels consumption, drains active work, then closes connection',
   );
   completed.resolve();
   await shutdown;
-  assert.deepEqual(fixture.events.slice(-3), [
+  assert.deepEqual(fixture.events.slice(-4), [
+    { type: 'cancel', tag: 'consumer-1' },
     { type: 'cancel', tag: 'consumer-1' },
     { type: 'ack', message: delivery },
     { type: 'close' },
@@ -244,4 +258,29 @@ test('successful shutdown clears its forced-exit watchdog', async (context) => {
   await fixture.service.onApplicationShutdown();
   context.mock.timers.tick(WORKER.SHUTDOWN_TIMEOUT_MS);
   assert.equal(exit.mock.callCount(), 0);
+});
+
+test('PDF jobs use separate fixed consumption, retry and result queues', async (context) => {
+  const fixture = createService(context, {
+    process: async (content, transport, expectedType) => {
+      assert.equal(expectedType, WORKER.PDF_JOB_TYPE);
+      await transport.publishResult({ jobType: WORKER.PDF_JOB_TYPE });
+      await transport.publishRetry({ jobType: WORKER.PDF_JOB_TYPE });
+      transport.acknowledge();
+    },
+  });
+  await fixture.service.onModuleInit();
+  fixture.state.consumers.get('test.worker.pdf.jobs')({
+    content: Buffer.from('pdf'),
+  });
+  await flushPromises();
+  const result = fixture.events.find(({ type }) => type === 'publish');
+  assert.equal(result.queue, 'test.worker.pdf.results');
+  result.confirm(null);
+  await flushPromises();
+  const publications = fixture.events.filter(({ type }) => type === 'publish');
+  assert.equal(publications[1].queue, 'test.worker.pdf.jobs');
+  publications[1].confirm(null);
+  await fixture.service.onApplicationShutdown();
+  assert.equal(fixture.events.filter(({ type }) => type === 'ack').length, 1);
 });

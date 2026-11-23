@@ -68,3 +68,20 @@ export interface IQuotationPdfResult {
   pdfBase64: string;
   contentType: 'application/pdf';
 }
+
+export interface IQuotationPdfCorrelation {
+  cycleId: string;
+  sourceHash: string;
+  generation: number;
+  operationId: string;
+}
+
+export interface IQuotationPdfJobPayload extends IQuotationPdfCorrelation {
+  document: IQuotationPdfPayload;
+}
+
+export interface IQuotationPdfJobResult
+  extends IQuotationPdfResult, IQuotationPdfCorrelation {
+  sha256: string;
+  byteLength: number;
+}

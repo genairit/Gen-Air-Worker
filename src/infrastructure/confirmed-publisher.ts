@@ -11,7 +11,12 @@ export class ConfirmedPublisher {
 
   publish = async (queue: string, value: object): Promise<void> => {
     const content = Buffer.from(JSON.stringify(value));
-    if (content.length > WORKER.MAX_RESULT_BYTES + WORKER.MAX_MESSAGE_BYTES) {
+    const isPdfResult =
+      'jobType' in value && value.jobType === WORKER.PDF_JOB_TYPE;
+    const maximumBytes = isPdfResult
+      ? WORKER.MAX_PDF_RESULT_BYTES
+      : WORKER.MAX_RESULT_BYTES + WORKER.MAX_MESSAGE_BYTES;
+    if (content.length > maximumBytes) {
       throw new Error('Message exceeds publication limit');
     }
 

@@ -180,10 +180,26 @@ export const renderQuotationPdf = async (
     handleSIGTERM: false,
     timeout: 10 * TIME.SECOND_MS,
   });
+  const child = browser.process();
+  const terminated = Promise.withResolvers<void>();
+  const logger = new TypedLogger('QuotationPdfRenderer');
   const terminate = (): void => {
-    browser.process()?.kill('SIGKILL');
+    try {
+      child?.kill('SIGKILL');
+    } catch {
+      logger.warn({
+        message:
+          'Owned Chromium process was already unavailable during termination',
+      });
+    } finally {
+      terminated.resolve();
+    }
   };
   signal.addEventListener('abort', terminate, { once: true });
+  if (signal.aborted) {
+    terminate();
+  }
+
   try {
     signal.throwIfAborted();
     const page = await browser.newPage();
@@ -214,16 +230,21 @@ export const renderQuotationPdf = async (
 
     return {
       pdfBase64: Buffer.from(pdf).toString('base64'),
-      contentType: 'application/pdf',
+      contentType: WORKER.PDF_CONTENT_TYPE,
     };
   } finally {
-    signal.removeEventListener('abort', terminate);
     try {
-      await browser.close();
+      await Promise.race([browser.close(), terminated.promise]);
     } catch {
-      new TypedLogger('QuotationPdfRenderer').warn({
-        message: 'Chromium was already terminated during cleanup',
+      if (!signal.aborted) {
+        terminate();
+      }
+
+      logger.warn({
+        message: 'Chromium cleanup failed; owned process termination requested',
       });
+    } finally {
+      signal.removeEventListener('abort', terminate);
     }
   }
 };

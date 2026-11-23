@@ -1,3 +1,9 @@
+import {
+  WORKER,
+  JOB_ERROR,
+  JOB_STATUS,
+} from '../dist/constants/worker.constant.js';
+
 import 'reflect-metadata';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -5,7 +11,6 @@ import { createHash } from 'node:crypto';
 import { JobError } from '../dist/errors/job.error.js';
 import { payload } from './fixtures/quotation-pdf.mjs';
 import { parseJob } from '../dist/utilities/job.utility.js';
-import { WORKER, JOB_ERROR } from '../dist/constants/worker.constant.js';
 import { WorkerService } from '../dist/modules/worker/worker.service.js';
 
 const correlation = {
@@ -24,19 +29,26 @@ const job = {
 };
 const encode = (value) => Buffer.from(JSON.stringify(value));
 const csv = { execute: async () => assert.fail('PDF used CSV executor') };
+const TRANSPORT_EVENT = {
+  ACK: 'ack',
+  RETRY: 'retry',
+  RESULT: 'result',
+  FAILURE: 'failure',
+};
+
 const transport = () => {
   const events = [];
   return {
     events,
-    acknowledge: () => events.push({ type: 'ack' }),
+    acknowledge: () => events.push({ type: TRANSPORT_EVENT.ACK }),
     publishRetry: async (value) => {
-      events.push({ type: 'retry', value });
+      events.push({ type: TRANSPORT_EVENT.RETRY, value });
     },
     publishResult: async (value) => {
-      events.push({ type: 'result', value });
+      events.push({ type: TRANSPORT_EVENT.RESULT, value });
     },
     publishFailure: async (value) => {
-      events.push({ type: 'failure', value });
+      events.push({ type: TRANSPORT_EVENT.FAILURE, value });
     },
   };
 };
@@ -81,19 +93,19 @@ test('PDF success includes verified byte metadata and correlation before acknowl
   await Promise.resolve();
   assert.deepEqual(
     target.events.map(({ type }) => type),
-    ['result'],
+    [TRANSPORT_EVENT.RESULT],
   );
   confirmation.resolve();
   await operation;
   assert.deepEqual(
     target.events.map(({ type }) => type),
-    ['result', 'ack'],
+    [TRANSPORT_EVENT.RESULT, TRANSPORT_EVENT.ACK],
   );
   assert.deepEqual(target.events[0].value.correlation, correlation);
   assert.deepEqual(target.events[0].value.output, {
     ...correlation,
     pdfBase64: bytes.toString('base64'),
-    contentType: 'application/pdf',
+    contentType: WORKER.PDF_CONTENT_TYPE,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     byteLength: bytes.length,
   });
@@ -112,7 +124,7 @@ test('PDF terminal failure retains correlation and never reports success bytes',
   );
   assert.deepEqual(
     target.events.map(({ type }) => type),
-    ['result', 'failure', 'ack'],
+    [TRANSPORT_EVENT.RESULT, TRANSPORT_EVENT.FAILURE, TRANSPORT_EVENT.ACK],
   );
   assert.equal(target.events[0].value.error, JOB_ERROR.TIMEOUT);
   assert.deepEqual(target.events[0].value.correlation, correlation);
@@ -135,7 +147,7 @@ test('maximum PDF bytes fit base64-expanded result budget without reducing CSV l
   const worker = new WorkerService(csv, { render: async () => bytes });
   await worker.process(encode(job), target);
   const result = target.events[0].value;
-  assert.equal(result.status, 'succeeded');
+  assert.equal(result.status, JOB_STATUS.SUCCEEDED);
   assert.equal(result.output.byteLength, WORKER.MAX_PDF_BYTES);
   assert.ok(
     Buffer.byteLength(JSON.stringify(result)) < WORKER.MAX_PDF_RESULT_BYTES,
@@ -153,7 +165,7 @@ test('typed queue mismatch is quarantined instead of crossing result ownership',
   await worker.process(encode(job), target, WORKER.JOB_TYPE);
   assert.deepEqual(
     target.events.map(({ type }) => type),
-    ['failure', 'ack'],
+    [TRANSPORT_EVENT.FAILURE, TRANSPORT_EVENT.ACK],
   );
   assert.equal(target.events[0].value.error, JOB_ERROR.INVALID);
 });

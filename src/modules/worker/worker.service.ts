@@ -129,7 +129,7 @@ export class WorkerService {
     const output: IQuotationPdfJobResult = {
       ...quotationPdfCorrelation(payload),
       pdfBase64: bytes.toString('base64'),
-      contentType: 'application/pdf',
+      contentType: WORKER.PDF_CONTENT_TYPE,
       byteLength: bytes.length,
       sha256: createHash('sha256').update(bytes).digest('hex'),
     };

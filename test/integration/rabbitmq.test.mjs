@@ -6,8 +6,8 @@ import { NestFactory } from '@nestjs/core';
 import { randomUUID, createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import { TIME } from '../../dist/constants/time.constant.js';
-import { WORKER } from '../../dist/constants/worker.constant.js';
 import { payload as pdfPayload } from '../fixtures/quotation-pdf.mjs';
+import { WORKER, JOB_STATUS } from '../../dist/constants/worker.constant.js';
 import { ConfirmedPublisher } from '../../dist/infrastructure/confirmed-publisher.js';
 
 const INTEGRATION = { POLL_INTERVAL_MS: TIME.SECOND_MS / 40 };
@@ -117,7 +117,7 @@ test('real RabbitMQ: durable jobs, duplicate-safe output, invalid jobs and healt
     };
     await publisher.publish(`${prefix}.pdf.jobs`, pdfJob);
     const pdf = await receive(channel, `${prefix}.pdf.results`);
-    assert.equal(pdf.status, 'succeeded');
+    assert.equal(pdf.status, JOB_STATUS.SUCCEEDED);
     assert.deepEqual(pdf.correlation, correlation);
     const bytes = Buffer.from(pdf.output.pdfBase64, 'base64');
     assert.match(bytes.subarray(0, 8).toString(), /^%PDF-/);
@@ -275,7 +275,7 @@ test('real process SIGTERM drains an active PDF delivery before broker disconnec
       2 * WORKER.PUBLISH_TIMEOUT_MS,
     );
     assert.equal(result.jobId, job.jobId);
-    assert.equal(result.status, 'succeeded');
+    assert.equal(result.status, JOB_STATUS.SUCCEEDED);
     assert.match(
       Buffer.from(result.output.pdfBase64, 'base64').subarray(0, 8).toString(),
       /^%PDF-/,

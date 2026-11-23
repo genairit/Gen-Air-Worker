@@ -1,3 +1,5 @@
+import type { WORKER } from '../constants/worker.constant.js';
+
 export interface IQuotationPdfLine {
   sku: string;
   unit: string;
@@ -66,7 +68,7 @@ export interface IQuotationPdfPayload {
 
 export interface IQuotationPdfResult {
   pdfBase64: string;
-  contentType: 'application/pdf';
+  contentType: typeof WORKER.PDF_CONTENT_TYPE;
 }
 
 export interface IQuotationPdfCorrelation {

@@ -4,6 +4,7 @@ export const WORKER = {
   VERSION: 1,
   JOB_TYPE: 'report.csv.v1',
   PDF_JOB_TYPE: 'quotation.pdf.v1',
+  PDF_CONTENT_TYPE: 'application/pdf',
   PDF_TIMEOUT_MS: 110 * TIME.SECOND_MS,
   MAX_PDF_BYTES: 4 * 1024 * 1024,
   MAX_PDF_RESULT_BYTES: 6 * 1024 * 1024,

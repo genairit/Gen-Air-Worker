@@ -4,12 +4,16 @@ import {
   OnApplicationShutdown,
 } from '@nestjs/common';
 
+import type {
+  IQueueNames,
+  WorkerJobType,
+} from '../../interfaces/worker.interface.js';
+
 import amqp from 'amqplib';
 import { ConfigService } from '@nestjs/config';
 import { WorkerService } from './worker.service.js';
 import { WORKER } from '../../constants/worker.constant.js';
 import { TypedLogger } from '../../logger/logger.service.js';
-import type { IQueueNames } from '../../interfaces/worker.interface.js';
 import type { ChannelModel, ConfirmChannel, ConsumeMessage } from 'amqplib';
 import { ConfirmedPublisher } from '../../infrastructure/confirmed-publisher.js';
 
@@ -17,7 +21,7 @@ import { ConfirmedPublisher } from '../../infrastructure/confirmed-publisher.js'
 export class QueueService implements OnModuleInit, OnApplicationShutdown {
   private ready = false;
   private stopping = false;
-  private consumerTag: string | null = null;
+  private readonly consumerTags: string[] = [];
   private channel: ConfirmChannel | null = null;
   private connection: ChannelModel | null = null;
   private readonly active = new Set<Promise<void>>();
@@ -59,7 +63,9 @@ export class QueueService implements OnModuleInit, OnApplicationShutdown {
     const prefix = this.config.getOrThrow<string>('WORKER_QUEUE_PREFIX');
     return {
       jobs: `${prefix}.jobs`,
+      pdfJobs: `${prefix}.pdf.jobs`,
       results: `${prefix}.results`,
+      pdfResults: `${prefix}.pdf.results`,
       failures: `${prefix}.failures`,
     };
   };
@@ -72,10 +78,19 @@ export class QueueService implements OnModuleInit, OnApplicationShutdown {
     const publisher = new ConfirmedPublisher(channel);
     const consumer = await channel.consume(
       queues.jobs,
-      (message) => this.consume(message, publisher, queues),
+      (message): void =>
+        this.consume(message, publisher, queues, WORKER.JOB_TYPE),
       { noAck: false },
     );
-    this.consumerTag = consumer.consumerTag;
+    this.consumerTags.push(consumer.consumerTag);
+    await channel.prefetch(1);
+    const pdfConsumer = await channel.consume(
+      queues.pdfJobs,
+      (message): void =>
+        this.consume(message, publisher, queues, WORKER.PDF_JOB_TYPE),
+      { noAck: false },
+    );
+    this.consumerTags.push(pdfConsumer.consumerTag);
     this.ready = true;
     this.logger.info({ message: 'Queue consumer ready' });
   };
@@ -121,7 +136,8 @@ export class QueueService implements OnModuleInit, OnApplicationShutdown {
     };
     await channel.assertQueue(queues.failures, durable);
     await channel.assertQueue(queues.results, durable);
-    await channel.assertQueue(queues.jobs, {
+    await channel.assertQueue(queues.pdfResults, durable);
+    const jobs = {
       ...durable,
       arguments: {
         ...durable.arguments,
@@ -130,28 +146,46 @@ export class QueueService implements OnModuleInit, OnApplicationShutdown {
         'x-dead-letter-exchange': '',
         'x-dead-letter-routing-key': queues.failures,
       },
-    });
+    };
+    await channel.assertQueue(queues.jobs, jobs);
+    await channel.assertQueue(queues.pdfJobs, jobs);
   };
 
   private consume = (
     message: ConsumeMessage | null,
     publisher: ConfirmedPublisher,
     queues: IQueueNames,
+    expectedType: WorkerJobType,
   ): void => {
     if (!message) {
       this.fail();
       return;
     }
 
-    const operation = this.worker.process(message.content, {
-      acknowledge: () => this.channel?.ack(message),
-      publishResult: (result) => publisher.publish(queues.results, result),
-      publishRetry: (job) => publisher.publish(queues.jobs, job),
-      publishFailure: (failure) => publisher.publish(queues.failures, failure),
+    const jobsQueue =
+      expectedType === WORKER.PDF_JOB_TYPE ? queues.pdfJobs : queues.jobs;
+    const operation = this.worker.process(
+      message.content,
+      {
+        acknowledge: (): void => {
+          this.channel?.ack(message);
+        },
+        publishResult: (result): Promise<void> => {
+          const queue =
+            result.jobType === WORKER.PDF_JOB_TYPE
+              ? queues.pdfResults
+              : queues.results;
+          return publisher.publish(queue, result);
+        },
+        publishRetry: (job): Promise<void> => publisher.publish(jobsQueue, job),
+        publishFailure: (failure): Promise<void> =>
+          publisher.publish(queues.failures, failure),
+      },
+      expectedType,
+    );
+    const tracked = operation.catch(this.fail).finally((): void => {
+      this.active.delete(tracked);
     });
-    const tracked = operation
-      .catch(this.fail)
-      .finally(() => this.active.delete(tracked));
     this.active.add(tracked);
   };
 
@@ -168,9 +202,14 @@ export class QueueService implements OnModuleInit, OnApplicationShutdown {
   };
 
   private stopConsumer = async (): Promise<void> => {
-    if (this.channel && this.consumerTag) {
-      await this.channel.cancel(this.consumerTag);
+    const channel = this.channel;
+    if (!channel) {
+      return;
     }
+
+    await Promise.all(
+      this.consumerTags.map((tag): Promise<unknown> => channel.cancel(tag)),
+    );
   };
 
   private closeConnection = async (): Promise<void> => {

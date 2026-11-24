@@ -1,5 +1,10 @@
+import type {
+  IQuotationPdfJobResult,
+  IQuotationPdfCorrelation,
+} from './quotation-pdf.interface.js';
+
 import type { JobDto } from '../dto/job.dto.js';
-import type { JOB_STATUS } from '../constants/worker.constant.js';
+import type { WORKER, JOB_STATUS } from '../constants/worker.constant.js';
 
 export interface IReportPayload {
   rows: string[][];
@@ -20,8 +25,9 @@ export interface IJobResult {
   tenantId: string;
   completedAt: string;
   error: string | null;
-  output: IReportResult | null;
+  correlation?: IQuotationPdfCorrelation;
   status: (typeof JOB_STATUS)[keyof typeof JOB_STATUS];
+  output: IReportResult | IQuotationPdfJobResult | null;
 }
 
 export interface IJobTransport {
@@ -34,7 +40,7 @@ export interface IJobTransport {
 export interface IJobOutcome {
   retryable: boolean;
   error: string | null;
-  output: IReportResult | null;
+  output: IReportResult | IQuotationPdfJobResult | null;
 }
 
 export interface IHealthResponse {
@@ -44,5 +50,9 @@ export interface IHealthResponse {
 export interface IQueueNames {
   jobs: string;
   results: string;
+  pdfJobs: string;
   failures: string;
+  pdfResults: string;
 }
+
+export type WorkerJobType = typeof WORKER.JOB_TYPE | typeof WORKER.PDF_JOB_TYPE;

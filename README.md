@@ -6,8 +6,9 @@ interfaces and `TypedLogger` layout. It has its own package, lockfile and Nest c
 There is no database module, database client, backend import or shared source dependency.
 
 The standalone service began with [card 148](https://trello.com/c/irqulidN).
-Quotation PDF generation for [card 128](https://trello.com/c/G6EHqI96) adds an
-authenticated HTTP render endpoint used by the main backend.
+Quotation PDF generation supports the private manual-download HTTP endpoint and
+durable `quotation.pdf.v1` broker jobs for lifecycle publication. Both use the same
+bounded renderer; the worker never reads the database or writes to Drive.
 
 ## Start locally
 
@@ -88,7 +89,7 @@ cells get a leading apostrophe, including after leading whitespace.
 
 The terminal result has `version`, `jobId`, `tenantId`, `jobType`, `attempt`,
 `completedAt`, `status` (`succeeded` or `failed`), `error` (code or null) and `output`
-(`{csv, rowCount, contentType}` or null). Result output is capped at 4 MiB. There are
+(`{csv, rowCount, contentType}` or null). CSV result output is capped at 4 MiB. There are
 no callbacks, arbitrary reply queues, file-system paths or fetch URLs in a job.
 
 The main server consumes results and owns all database updates, permissions and UI
@@ -100,6 +101,40 @@ If that transaction fails, leave the result unacknowledged for redelivery.
 data; printing a result is not a production persistence/idempotency implementation.
 Use it only with a dedicated local demo queue prefix, never shared result queues.
 
+## Durable quotation PDF contract
+
+The existing job envelope also accepts `jobType: "quotation.pdf.v1"`. Its `payload`
+is `{operationId, cycleId, sourceHash, generation, document}`: bounded identifiers
+(1–128 letters/digits/underscores/hyphens), a lowercase SHA-256 source hash, a safe
+integer generation of at least 1, and the complete validated `IQuotationPdfPayload`
+from `src/interfaces/quotation-pdf.interface.ts`. The backend freezes the document,
+including print date and authoritative naming inputs, before publishing. Unknown
+outer payload fields and incomplete PDF documents are rejected. The complete job
+JSON remains capped at 1 MiB. No client-selected reply queue is accepted.
+
+PDF jobs go only to the fixed `<WORKER_QUEUE_PREFIX>.pdf.jobs` queue, with
+a single prefetched delivery per process. Legacy CSV workers never consume it, so
+rolling deployments cannot reject PDF jobs as unknown CSV envelopes. PDF results go only to the fixed `<WORKER_QUEUE_PREFIX>.pdf.results` queue. CSV
+results retain their existing `.results` queue and exact shape. A valid PDF
+terminal result adds top-level
+`correlation: {operationId, cycleId, sourceHash, generation}`, including failures.
+On success `output` contains that same correlation plus `pdfBase64`,
+`contentType: "application/pdf"`, `sha256` (lowercase SHA-256 of decoded bytes)
+and `byteLength`. A failed output is null. PDF bytes are capped at 4 MiB and the
+serialized PDF result envelope at 6 MiB, accounting for base64 expansion and bounded
+metadata; RabbitMQ's message limit must allow at least 6 MiB. Existing RabbitMQ 4.1
+default limits support this size. CSV limits do not increase.
+
+The singleton PDF renderer admits one Chromium render across HTTP and broker work
+per process. Concurrent HTTP requests return 503; queued work encountering a busy
+renderer retries through the existing bounded retry protocol. Each PDF deadline is
+110 seconds; expiry kills the actual Chromium child before releasing the slot.
+The CSV worker thread retains its 30-second limit. Rendering has no external side
+effects and may run again after redelivery; PDF metadata may differ between
+renders. The backend must adopt the first matching bytes transactionally before
+ACKing the result and never overwrite accepted artifacts with duplicate renders.
+The worker does not claim to deduplicate across process restarts or replicas.
+
 ## Queue choice and delivery guarantees
 
 RabbitMQ is the initial adapter: it supports durable quorum queues, manual consumer
@@ -109,8 +144,10 @@ The versioned JSON contract keeps a future transport change possible.
 
 For prefix `genair.worker.v1` the worker declares:
 
-- `.jobs`: durable quorum work queue with manual acknowledgments.
-- `.results`: durable quorum result queue consumed by the main server.
+- `.jobs`: existing durable quorum CSV work queue with manual acknowledgments.
+- `.results`: durable quorum CSV result queue consumed by its existing owner.
+- `.pdf.jobs`: separate durable quorum PDF work queue with the same retry/dead-letter policy.
+- `.pdf.results`: separate durable quorum PDF result queue consumed only by the publication backend.
 - `.failures`: durable quorum queue for operator inspection/recovery.
 
 Each queue has a 64 MiB ready-message budget with reject-publish overflow rather
@@ -122,7 +159,7 @@ replication needs a suitable cluster.
 Delivery is **at least once**, not exactly once:
 
 1. Success is acknowledged only after the broker confirms a persistent result.
-2. Transient execution failures and real 30-second timeouts retry up to three logical
+2. Transient execution failures and real type-specific timeouts retry up to three logical
    attempts, with 5- and 10-second delays. Prefetch slots stay occupied during the
    delay, bounding retry load. Validation failures are not retried.
 3. A retry is confirmed before the original is acknowledged. A crash between those
@@ -141,9 +178,9 @@ Delivery is **at least once**, not exactly once:
    no delivery limit to avoid silently discarding them.
 
 SIGTERM cancels consumption, drains active jobs and closes the connection. A single
-45-second watchdog covers the whole sequence, including broker RPCs, and forces a
+150-second watchdog covers the whole sequence, including broker RPCs, and forces a
 nonzero process exit if it stalls so unfinished deliveries return to the broker. Give the supervisor at
-least 60 seconds before forcing termination. No process-local cache claims to prevent
+least 180 seconds before forcing termination. No process-local cache claims to prevent
 duplicate work across worker replicas. Future handlers must stay pure or supply
 idempotency for every external side effect before being enabled.
 
@@ -153,10 +190,11 @@ Set `WORKER_API_TOKEN` to the same random secret in this service and the main
 backend. Set the backend's `WORKER_URL` to this service's private base URL. The
 runtime image installs Chromium and Noto fonts for A4 Hebrew PDF rendering; the
 example Compose file reserves 1 GiB of memory. The backend controls whether the
-returned file is uploaded to the linked project's `הצעות מחיר` folder. An unlinked
-quotation is returned for download without any Drive upload.
+immutable lifecycle job is published and where accepted bytes are stored in Drive.
+Manual HTTP rendering itself only returns bytes and never uploads.
 
-See [the environment migration](migrations/2026-11-10-worker-environment.md).
+See [the environment migration](migrations/2026-11-10-worker-environment.md) and
+[PDF broker rollout](migrations/2026-11-23-quotation-pdf-broker.md).
 Production is deliberately not provisioned by this change. Before rollout:
 
 - Use a private broker network, TLS (`amqps`) and separate least-privilege producer,
@@ -167,7 +205,8 @@ Production is deliberately not provisioned by this change. Before rollout:
 - Do not pass DB credentials or the main server's secrets to the worker. The image
   runs as a non-root user. Logs contain only status, job ID and attempt, never
   payloads, results, raw broker errors or connection URLs.
-- Start with prefetch 1. Increase it only after measuring peak memory/CPU per job.
+- Start with CSV prefetch 1. PDF prefetch stays fixed at 1 independently. Increase
+  CSV prefetch only after measuring peak memory/CPU per job.
   Each running job gets a thread with a 128 MiB old-generation limit; that is not
   a complete process-memory cap. Keep container CPU/memory limits too.
 - Monitor ready/unacknowledged counts, oldest pending job, failures, retries, result
@@ -194,13 +233,15 @@ Nest HTTP health. The integration command requires a disposable localhost Rabbit
 queue round trip, duplicate output, failure paths and worker readiness during a
 2,500-row export. This is not a performance result for the main application.
 
-The implementation environment had no Docker/RabbitMQ executable: a successful
-unit/component test run is not evidence of a tested Docker image or live broker.
-Live broker recovery, production TLS/ACLs, shared application load and full
-repository feature QA must be verified before PR/rollout approval.
+The maintained integration test uses a disposable localhost RabbitMQ 4.1+ broker
+and actual Chromium PDF rendering. It verifies fixed PDF/CSV result routing, byte
+hashes, duplicate deliveries, unacknowledged result redelivery and readiness.
+Production TLS/ACLs and shared application load remain operational checks; local
+broker evidence does not claim production infrastructure verification.
 
 ## Next steps
 
-Next scope decisions remain: choose the first real task, integrate the main server's
-outbox/job status/result transaction, define hosting and resource targets, and prove
-normal app responsiveness under representative concurrent load.
+The publication backend owns the durable outbox, first-byte adoption, lifecycle
+serialization and Drive reconciliation. Keep worker promotion ahead of enabling
+that publisher. Prove normal app responsiveness under representative shared load
+before increasing prefetch or renderer concurrency.

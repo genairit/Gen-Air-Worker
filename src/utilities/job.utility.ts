@@ -3,6 +3,7 @@ import { validateSync } from 'class-validator';
 import { JobError } from '../errors/job.error.js';
 import { plainToInstance } from 'class-transformer';
 import { WORKER, JOB_ERROR } from '../constants/worker.constant.js';
+import { validateQuotationPdfJobPayload } from './quotation-pdf-job.utility.js';
 
 export const parseJob = (content: Buffer): JobDto => {
   if (content.length > WORKER.MAX_MESSAGE_BYTES) {
@@ -22,6 +23,10 @@ export const parseJob = (content: Buffer): JobDto => {
   });
   if (errors.length > 0) {
     throw new JobError(JOB_ERROR.INVALID, false);
+  }
+
+  if (job.jobType === WORKER.PDF_JOB_TYPE) {
+    validateQuotationPdfJobPayload(job.payload);
   }
 
   return job;

@@ -84,3 +84,27 @@ test('publisher times out without a confirm and rejects oversized payloads', asy
   );
   assert.equal(channel.publications.length, 1);
 });
+
+test('PDF publication permits bounded base64 expansion and rejects above full envelope cap', async () => {
+  const channel = createChannel();
+  const publisher = new ConfirmedPublisher(channel);
+  const value = {
+    jobType: WORKER.PDF_JOB_TYPE,
+    pdfBase64: 'A'.repeat(Math.ceil(WORKER.MAX_PDF_BYTES / 3) * 4),
+  };
+  const operation = publisher.publish('pdf.results', value);
+  assert.ok(channel.publications[0].content.length > WORKER.MAX_RESULT_BYTES);
+  assert.ok(
+    channel.publications[0].content.length < WORKER.MAX_PDF_RESULT_BYTES,
+  );
+  channel.publications[0].confirm(null);
+  await operation;
+  await assert.rejects(
+    publisher.publish('pdf.results', {
+      jobType: WORKER.PDF_JOB_TYPE,
+      value: 'x'.repeat(WORKER.MAX_PDF_RESULT_BYTES),
+    }),
+    /publication limit/,
+  );
+  assert.equal(channel.publications.length, 1);
+});

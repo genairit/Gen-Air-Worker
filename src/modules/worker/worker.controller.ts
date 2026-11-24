@@ -14,6 +14,7 @@ import {
 import { timingSafeEqual } from 'node:crypto';
 import { ConfigService } from '@nestjs/config';
 import { QueueService } from './queue.service.js';
+import { WORKER } from '../../constants/worker.constant.js';
 import type { IHealthResponse } from '../../interfaces/worker.interface.js';
 import { QuotationPdfRenderService } from './quotation-pdf-render.service.js';
 import { isQuotationPdfPayload } from '../../utilities/quotation-pdf.utility.js';
@@ -62,6 +63,6 @@ export class WorkerController {
     }
 
     const pdf = await this.pdf.render(payload);
-    return new StreamableFile(pdf, { type: 'application/pdf' });
+    return new StreamableFile(pdf, { type: WORKER.PDF_CONTENT_TYPE });
   }
 }

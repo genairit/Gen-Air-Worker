@@ -32,6 +32,8 @@ export interface IEstimatePdfPayload {
   total: string;
   subtotal: string;
   revision: number;
+  adjustment?: string;
+  documentDate?: string;
   paymentTerms?: string[];
   lines: IEstimatePdfLine[];
   projectName: string | null;
@@ -82,6 +84,8 @@ const estimatePdfSchema = Joi.object<IEstimatePdfPayload>({
       }),
     )
     .required(),
+  adjustment: numberText.optional(),
+  documentDate: label.optional(),
   subtotal: numberText,
   vat: numberText,
   total: numberText,
@@ -159,6 +163,7 @@ export const renderEngineeringEstimatePdf = async (
   const metadata = [
     payload.customerName,
     payload.projectName,
+    payload.documentDate ?? null,
     `מהדורה ${payload.revision}`,
   ]
     .filter((part): part is string => part !== null)
@@ -175,6 +180,10 @@ export const renderEngineeringEstimatePdf = async (
   const terms = paymentTerms
     ? `<section><h2>תנאי תשלום</h2><ul>${paymentTerms}</ul></section>`
     : '';
+  const adjustment =
+    payload.adjustment && Number(payload.adjustment) > 0
+      ? `<br>הנחה <bdi>${escape(payload.adjustment)} ₪</bdi>`
+      : '';
   const signature = isSketch
     ? ''
     : '<p>אישור הלקוח וחתימה ____________________</p>';
@@ -190,7 +199,7 @@ export const renderEngineeringEstimatePdf = async (
   <h2>${escape(payload.name)}</h2><p>${metadata}</p>${contact ? `<p>${contact}</p>` : ''}${scope ? `<p>${scope}</p>` : ''}
   ${plans}<table><thead><tr><th>אזור</th><th>מק״ט</th><th>תיאור</th><th>כמות</th><th>מחיר ליחידה</th><th>סה״כ</th></tr></thead>
   <tbody>${payload.lines.map(estimateRow).join('')}</tbody></table>
-  <aside>סה״כ לפני מע״מ <bdi>${escape(payload.subtotal)} ₪</bdi><br>מע״מ <bdi>${escape(payload.vat)} ₪</bdi><br>
+  <aside>סכום שורות <bdi>${escape(payload.subtotal)} ₪</bdi>${adjustment}<br>מע״מ <bdi>${escape(payload.vat)} ₪</bdi><br>
   <strong>סה״כ כולל מע״מ <bdi>${escape(payload.total)} ₪</bdi></strong></aside>${isSketch ? '' : terms}${signature}</body></html>`;
   return renderPdfDocument(
     {

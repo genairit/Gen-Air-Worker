@@ -2,13 +2,28 @@ import { JobError } from '../../errors/job.error.js';
 import { JOB_ERROR, WORKER } from '../../constants/worker.constant.js';
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { renderQuotationPdf } from '../../handlers/quotation-pdf.handler.js';
+import type { IQuotationPdfResult } from '../../interfaces/quotation-pdf.interface.js';
 import type { IQuotationPdfPayload } from '../../interfaces/quotation-pdf.interface.js';
+import {
+  renderEngineeringEstimatePdf,
+  type IEstimatePdfPayload,
+} from '../../handlers/engineering-estimate-pdf.handler.js';
 
 @Injectable()
 export class QuotationPdfRenderService {
   private rendering = false;
 
-  render = async (payload: IQuotationPdfPayload): Promise<Buffer> => {
+  render = (payload: IQuotationPdfPayload): Promise<Buffer> =>
+    this.renderBounded((signal) => renderQuotationPdf(payload, signal));
+
+  renderEstimate = (payload: IEstimatePdfPayload): Promise<Buffer> =>
+    this.renderBounded((signal) =>
+      renderEngineeringEstimatePdf(payload, signal),
+    );
+
+  private async renderBounded(
+    render: (signal: AbortSignal) => Promise<IQuotationPdfResult>,
+  ): Promise<Buffer> {
     if (this.rendering) {
       throw new ServiceUnavailableException('Quotation PDF renderer is busy');
     }
@@ -20,7 +35,7 @@ export class QuotationPdfRenderService {
       WORKER.PDF_TIMEOUT_MS,
     );
     try {
-      const result = await renderQuotationPdf(payload, controller.signal);
+      const result = await render(controller.signal);
       controller.signal.throwIfAborted();
       return Buffer.from(result.pdfBase64, 'base64');
     } catch (error) {
@@ -33,5 +48,5 @@ export class QuotationPdfRenderService {
       clearTimeout(timeout);
       this.rendering = false;
     }
-  };
+  }
 }

@@ -84,7 +84,10 @@ const estimatePdfSchema = Joi.object<IEstimatePdfPayload>({
       }),
     )
     .required(),
-  adjustment: numberText.optional(),
+  adjustment: Joi.string()
+    .max(24)
+    .pattern(/^-?\d+(?:\.\d{1,6})?$/)
+    .optional(),
   documentDate: label.optional(),
   subtotal: numberText,
   vat: numberText,
@@ -180,10 +183,13 @@ export const renderEngineeringEstimatePdf = async (
   const terms = paymentTerms
     ? `<section><h2>תנאי תשלום</h2><ul>${paymentTerms}</ul></section>`
     : '';
+  const adjustmentAmount = payload.adjustment ?? '0';
+  const adjustmentValue = Number(adjustmentAmount);
+  const adjustmentLabel = adjustmentValue < 0 ? 'תוספת' : 'הנחה';
   const adjustment =
-    payload.adjustment && Number(payload.adjustment) > 0
-      ? `<br>הנחה <bdi>${escape(payload.adjustment)} ₪</bdi>`
-      : '';
+    adjustmentValue === 0
+      ? ''
+      : `<br>${adjustmentLabel} <bdi>${escape(adjustmentAmount.replace(/^-/, ''))} ₪</bdi>`;
   const signature = isSketch
     ? ''
     : '<p>אישור הלקוח וחתימה ____________________</p>';

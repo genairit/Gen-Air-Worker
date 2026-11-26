@@ -88,3 +88,18 @@ test('estimate PDF endpoint checks the worker token and request before rendering
   assert.equal(result.getHeaders().type, 'application/pdf');
   assert.deepEqual(calls, [payload]);
 });
+
+test('proposal accepts a surcharge and the full quotation payment schedule', () => {
+  const proposal = {
+    ...payload,
+    kind: 'proposal',
+    markedPlans: [],
+    adjustment: '-20.00',
+    paymentTerms: [...Array(30).fill('שלב תשלום'), 'א'.repeat(1000)],
+  };
+  assert.equal(isEstimatePdfPayload(proposal), true);
+  assert.equal(
+    isEstimatePdfPayload({ ...proposal, adjustment: 'Infinity' }),
+    false,
+  );
+});

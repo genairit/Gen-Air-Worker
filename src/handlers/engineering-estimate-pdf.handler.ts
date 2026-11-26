@@ -68,7 +68,7 @@ const estimatePdfSchema = Joi.object<IEstimatePdfPayload>({
   contactName: label.optional().allow(null),
   contactPhone: label.optional().allow(null),
   scopeLabel: label.optional().allow(null),
-  paymentTerms: Joi.array().max(20).items(Joi.string().max(1200)).optional(),
+  paymentTerms: Joi.array().max(32).items(Joi.string().max(1200)).optional(),
   lines: Joi.array()
     .max(1500)
     .min(1)

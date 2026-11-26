@@ -7,6 +7,7 @@ import type { IQuotationPdfResult } from '../interfaces/quotation-pdf.interface.
 
 interface IPdfDocument {
   html: string;
+  footer?: string;
   header: string | null;
 }
 
@@ -56,9 +57,9 @@ export const renderPdfDocument = async (
       timeout: 80 * TIME.SECOND_MS,
       format: 'A4',
       printBackground: true,
-      displayHeaderFooter: document.header !== null,
-      headerTemplate: document.header ?? '',
-      footerTemplate: '<span></span>',
+      displayHeaderFooter: document.header !== null || document.footer != null,
+      headerTemplate: document.header ?? '<span></span>',
+      footerTemplate: document.footer ?? '<span></span>',
       margin: {
         top: document.header === null ? '12mm' : '60mm',
         bottom: '12mm',

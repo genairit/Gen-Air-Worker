@@ -5,7 +5,11 @@ import { readFile } from 'node:fs/promises';
 import { renderPdfDocument } from '../utilities/render-pdf-document.utility.js';
 import type { IQuotationPdfResult } from '../interfaces/quotation-pdf.interface.js';
 
-const DOCUMENT_KIND = { SKETCH: 'sketch', PROPOSAL: 'proposal' } as const;
+const DOCUMENT_KIND = {
+  SKETCH: 'sketch',
+  PROPOSAL: 'proposal',
+  BOQ: 'boq',
+} as const;
 const IMAGE_FORMAT = { 'image/png': 'png', 'image/jpeg': 'jpg' } as const;
 const MAX_PLAN_PIXELS = 16_000_000;
 
@@ -161,7 +165,12 @@ export const renderEngineeringEstimatePdf = async (
     ),
     readFile(join(process.cwd(), 'assets/genair-logo.png')),
   ]);
-  const heading = isSketch ? 'סקיצה לאישור' : 'הצעת מחיר מיזוג אוויר';
+  const isBoq = payload.kind === DOCUMENT_KIND.BOQ;
+  const heading = isSketch
+    ? 'סקיצה לאישור'
+    : isBoq
+      ? 'כתב כמויות'
+      : 'הצעת מחיר מיזוג אוויר';
   const plans = isSketch ? payload.markedPlans.map(sketchPlan).join('') : '';
   const metadata = [
     payload.customerName,
@@ -190,9 +199,13 @@ export const renderEngineeringEstimatePdf = async (
     adjustmentValue === 0
       ? ''
       : `<br>${adjustmentLabel} <bdi>${escape(adjustmentAmount.replace(/^-/, ''))} ₪</bdi>`;
-  const signature = isSketch
+  const signature = isSketch || isBoq
     ? ''
     : '<p>אישור הלקוח וחתימה ____________________</p>';
+  const totals = isBoq
+    ? `<aside><strong>סה״כ לפני מע״מ <bdi>${escape(payload.subtotal)} ₪</bdi></strong></aside>`
+    : `<aside>סכום שורות <bdi>${escape(payload.subtotal)} ₪</bdi>${adjustment}<br>מע״מ <bdi>${escape(payload.vat)} ₪</bdi><br>
+  <strong>סה״כ כולל מע״מ <bdi>${escape(payload.total)} ₪</bdi></strong></aside>`;
   const html = `<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><style>
     @font-face{font-family:Hebrew;src:url(data:font/woff2;base64,${font.toString('base64')})}
     body{font:10pt Hebrew,Arial,sans-serif;color:#0f172a}
@@ -205,8 +218,7 @@ export const renderEngineeringEstimatePdf = async (
   <h2>${escape(payload.name)}</h2><p>${metadata}</p>${contact ? `<p>${contact}</p>` : ''}${scope ? `<p>${scope}</p>` : ''}
   ${plans}<table><thead><tr><th>אזור</th><th>מק״ט</th><th>תיאור</th><th>כמות</th><th>מחיר ליחידה</th><th>סה״כ</th></tr></thead>
   <tbody>${payload.lines.map(estimateRow).join('')}</tbody></table>
-  <aside>סכום שורות <bdi>${escape(payload.subtotal)} ₪</bdi>${adjustment}<br>מע״מ <bdi>${escape(payload.vat)} ₪</bdi><br>
-  <strong>סה״כ כולל מע״מ <bdi>${escape(payload.total)} ₪</bdi></strong></aside>${isSketch ? '' : terms}${signature}</body></html>`;
+  ${totals}${isSketch || isBoq ? '' : terms}${signature}</body></html>`;
   return renderPdfDocument(
     {
       html,

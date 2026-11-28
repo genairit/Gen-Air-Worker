@@ -8,6 +8,7 @@ import type {
 
 import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
+import { formatQuantity } from '../utilities/format-quantity.utility.js';
 import { renderPdfDocument } from '../utilities/render-pdf-document.utility.js';
 import { validateQuotationPdfPayload } from '../utilities/quotation-pdf.utility.js';
 
@@ -55,7 +56,7 @@ const companyDetails = (payload: IQuotationPdfPayload): string =>
 const row = (line: IQuotationPdfLine): string => `
   <tr><td><bdi>${text(line.sku)}</bdi></td><td>${text(line.description)}</td>
   <td><bdi>${line.capacityBtu === null ? '' : `${line.capacityBtu.toLocaleString('en-US')} BTU`}</bdi></td>
-  <td><bdi>${text(line.quantity)} ${text(line.unit)}</bdi></td>
+  <td><bdi>${text(formatQuantity(line.quantity))} ${text(line.unit)}</bdi></td>
   <td><bdi>${text(line.unitPrice)} ₪</bdi></td><td><bdi>${text(line.totalPrice)} ₪</bdi></td></tr>`;
 
 const terms = (title: string, paragraphs: string[]): string =>

@@ -2,6 +2,7 @@ import Joi from 'joi';
 import { join } from 'node:path';
 import { imageSize } from 'image-size';
 import { readFile } from 'node:fs/promises';
+import { formatQuantity } from '../utilities/format-quantity.utility.js';
 import { renderPdfDocument } from '../utilities/render-pdf-document.utility.js';
 import type { IQuotationPdfResult } from '../interfaces/quotation-pdf.interface.js';
 
@@ -144,7 +145,7 @@ const escape = (value: string | null): string =>
 
 const estimateRow = (line: IEstimatePdfLine): string => `
   <tr><td>${escape(line.areaName)}</td><td><bdi>${escape(line.sku)}</bdi></td>
-  <td>${escape(line.description)}</td><td><bdi>${escape(line.quantity)}</bdi> ${escape(line.unit)}</td>
+  <td>${escape(line.description)}</td><td><bdi>${escape(formatQuantity(line.quantity))}</bdi> ${escape(line.unit)}</td>
   <td><bdi>${escape(line.unitPrice)} ₪</bdi></td><td><bdi>${escape(line.total)} ₪</bdi></td></tr>`;
 
 const sketchPlan = (plan: IEstimatePdfPlan): string => `

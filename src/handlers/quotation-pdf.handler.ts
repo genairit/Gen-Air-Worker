@@ -2,6 +2,7 @@ import type {
   IQuotationPdfLine,
   IQuotationPdfParty,
   IQuotationPdfResult,
+  IQuotationPdfSection,
   IQuotationPdfPayload,
 } from '../interfaces/quotation-pdf.interface.js';
 
@@ -62,13 +63,34 @@ const terms = (title: string, paragraphs: string[]): string =>
     ? ''
     : `<section class="term"><h2>${title}</h2>${paragraphs.map((paragraph) => `<p>${text(paragraph)}</p>`).join('')}</section>`;
 
-const renderSections = (payload: IQuotationPdfPayload): string =>
-  payload.sections
-    .map(
-      (section) => `
-    <tr class="section-row"><td colspan="6">${text([section.brand, section.title].filter(Boolean).join(' · '))}</td></tr>
-    ${section.lines.map(row).join('')}`,
-    )
+const groupHeading = (
+  label: string,
+  level: 'floor' | 'company' | 'system',
+): string =>
+  `<tr class="section-row ${level}"><td colspan="6">${text(label)}</td></tr>`;
+
+export const renderQuotationSections = (
+  sections: IQuotationPdfSection[],
+): string =>
+  sections
+    .map((section, index) => {
+      const previous = sections[index - 1];
+      const startsFloor =
+        (previous?.floorId ?? null) !== (section.floorId ?? null);
+      const startsCompany =
+        startsFloor || !previous || section.brand !== previous.brand;
+      const title = section.title.trim();
+      return [
+        startsFloor && section.floorName
+          ? groupHeading(section.floorName, 'floor')
+          : '',
+        startsCompany ? groupHeading(section.brand ?? 'כללי', 'company') : '',
+        title && (section.brand || title !== 'כללי')
+          ? groupHeading(title, 'system')
+          : '',
+        ...section.lines.map(row),
+      ].join('');
+    })
     .join('');
 
 const renderMetadata = (payload: IQuotationPdfPayload): string =>
@@ -124,7 +146,7 @@ const renderHtml = (
     @font-face{font-family:NotoLatin;src:url(data:font/woff2;base64,${latinFont}) format('woff2');font-weight:400}
     ${styles}
   </style></head><body>
-    <table><thead><tr><th>מק״ט</th><th>תיאור מוצר</th><th>BTU</th><th>כמות</th><th>מחיר ליחידה</th><th>סה״כ מחיר</th></tr></thead><tbody>${renderSections(payload)}</tbody></table>
+    <table><thead><tr><th>מק״ט</th><th>תיאור מוצר</th><th>BTU</th><th>כמות</th><th>מחיר ליחידה</th><th>סה״כ מחיר</th></tr></thead><tbody>${renderQuotationSections(payload.sections)}</tbody></table>
     ${renderSummary(payload)}${renderTerms(payload)}${renderApproval(payload)}
     <div class="signature">בברכה: ${text(payload.issuerName)}<strong>${text(payload.company.name)}</strong></div>
   </body></html>`;

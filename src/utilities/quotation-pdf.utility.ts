@@ -30,6 +30,14 @@ const section = (value: unknown): boolean =>
   record(value) &&
   string(value.title) &&
   optionalString(value.brand) &&
+  ((value.floorId == null && value.floorName == null) ||
+    (typeof value.floorId === 'string' &&
+      value.floorId.length > 0 &&
+      value.floorId.length <= 36 &&
+      typeof value.floorName === 'string' &&
+      value.floorName.trim().length > 0 &&
+      value.floorName.length <= 200 &&
+      typeof value.brand === 'string')) &&
   Array.isArray(value.lines) &&
   value.lines.length <= 200 &&
   value.lines.every(line);

@@ -13,6 +13,8 @@ export interface IQuotationPdfLine {
 export interface IQuotationPdfSection {
   title: string;
   brand: string | null;
+  floorId?: string | null;
+  floorName?: string | null;
   lines: IQuotationPdfLine[];
 }
 

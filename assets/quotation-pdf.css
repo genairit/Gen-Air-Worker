@@ -60,6 +60,16 @@ tr {
 }
 .section-row td {
   padding: 1.2mm;
+  break-after: avoid;
+}
+.section-row.floor {
+  background: #dce9fa;
+}
+.section-row.system {
+  background: #fff;
+}
+.section-row.system td {
+  padding-inline-start: 3mm;
 }
 bdi {
   direction: ltr;
